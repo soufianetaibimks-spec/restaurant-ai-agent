@@ -1,0 +1,50 @@
+[
+  {
+    "id": "app-1",
+    "name": "Bruschetta",
+    "category": "appetizer",
+    "price": 8.50,
+    "description": "Grilled bread topped with tomato, garlic, and basil.",
+    "allergens": ["gluten"]
+  },
+  {
+    "id": "app-2",
+    "name": "Calamari",
+    "category": "appetizer",
+    "price": 11.00,
+    "description": "Lightly fried squid served with marinara sauce.",
+    "allergens": ["shellfish", "gluten"]
+  },
+  {
+    "id": "main-1",
+    "name": "Margherita Pizza",
+    "category": "main",
+    "price": 14.00,
+    "description": "Tomato, mozzarella, and fresh basil.",
+    "allergens": ["gluten", "dairy"]
+  },
+  {
+    "id": "main-2",
+    "name": "Grilled Salmon",
+    "category": "main",
+    "price": 22.00,
+    "description": "Served with roasted vegetables and lemon butter.",
+    "allergens": ["fish", "dairy"]
+  },
+  {
+    "id": "main-3",
+    "name": "Mushroom Risotto",
+    "category": "main",
+    "price": 17.50,
+    "description": "Creamy arborio rice with wild mushrooms and parmesan.",
+    "allergens": ["dairy"]
+  },
+  {
+    "id": "dessert-1",
+    "name": "Tiramisu",
+    "category": "dessert",
+    "price": 7.50,
+    "description": "Espresso-soaked ladyfingers with mascarpone cream.",
+    "allergens": ["gluten", "dairy", "egg"]
+  }
+]
