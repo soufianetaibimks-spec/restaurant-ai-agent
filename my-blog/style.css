@@ -1,0 +1,28 @@
+/*
+Theme Name: My Blog
+Theme URI: https://example.com/my-blog
+Author: My Blog
+Author URI: https://example.com
+Description: A minimal WordPress block theme with RTL-ready logical CSS and IBM Plex Sans Arabic.
+Requires at least: 6.4
+Tested up to: 6.6
+Requires PHP: 7.4
+Version: 1.0.0
+License: GNU General Public License v2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: my-blog
+Domain Path: /languages
+*/
+
+body {
+	margin-block: 0;
+	padding-inline: 0;
+}
+
+.site-content {
+	max-width: 720px;
+	margin-inline: auto;
+	padding-inline: 1.5rem;
+	padding-block: 2rem;
+	text-align: start;
+}

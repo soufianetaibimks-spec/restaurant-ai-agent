@@ -1,0 +1,42 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/theme.json",
+	"version": 2,
+	"settings": {
+		"useRootPaddingAwareAlignments": true,
+		"color": {
+			"palette": [
+				{ "slug": "background", "color": "#ffffff", "name": "Background" },
+				{ "slug": "foreground", "color": "#1a1a1a", "name": "Foreground" },
+				{ "slug": "primary", "color": "#0a4d68", "name": "Primary" }
+			]
+		},
+		"typography": {
+			"fontFamilies": [
+				{
+					"fontFamily": "'IBM Plex Sans Arabic', sans-serif",
+					"slug": "ibm-plex-sans-arabic",
+					"name": "IBM Plex Sans Arabic"
+				}
+			],
+			"fontSizes": [
+				{ "slug": "small", "size": "0.875rem", "name": "Small" },
+				{ "slug": "medium", "size": "1rem", "name": "Medium" },
+				{ "slug": "large", "size": "1.5rem", "name": "Large" }
+			]
+		},
+		"layout": {
+			"contentSize": "720px",
+			"wideSize": "1080px"
+		}
+	},
+	"styles": {
+		"typography": {
+			"fontFamily": "var(--wp--preset--font-family--ibm-plex-sans-arabic)",
+			"fontSize": "var(--wp--preset--font-size--medium)"
+		},
+		"color": {
+			"background": "var(--wp--preset--color--background)",
+			"text": "var(--wp--preset--color--foreground)"
+		}
+	}
+}
