@@ -1,0 +1,28 @@
+---
+import { Image } from 'astro:assets';
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  article: CollectionEntry<'articles'>;
+}
+
+const { article } = Astro.props;
+const { title, description, heroImage, heroImageAlt, destination, country, pubDate } = article.data;
+const dateFormatted = pubDate.toLocaleDateString('ar-MA', { year: 'numeric', month: 'long', day: 'numeric' });
+---
+
+<article class="article-card">
+  {
+    heroImage && (
+      <a href={`/articles/${article.id}`}>
+        <Image src={heroImage} alt={heroImageAlt ?? title} width={600} height={375} />
+      </a>
+    )
+  }
+  <div class="card-body">
+    <p class="card-meta">{destination} · {country}</p>
+    <h3><a href={`/articles/${article.id}`}>{title}</a></h3>
+    <p>{description}</p>
+    <p class="card-footer">{dateFormatted}</p>
+  </div>
+</article>

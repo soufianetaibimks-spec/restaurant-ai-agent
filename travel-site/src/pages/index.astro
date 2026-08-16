@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ArticleCard from '../components/ArticleCard.astro';
+import { getCollection } from 'astro:content';
+
+const allArticles = (await getCollection('articles')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+const featured = allArticles.filter((a) => a.data.featured).slice(0, 3);
+const latest = allArticles.slice(0, 6);
+---
+
+<BaseLayout
+  title="دلائل ومقالات سفر"
+  description="اكتشف وجهات جديدة، دلائل سفر مفصلة، ونصائح عملية لرحلاتك القادمة."
+>
+  <section class="hero container">
+    <h1>سافر بذكاء، اكتشف أكثر</h1>
+    <p>دلائل سفر مفصّلة، أفكار رحلات، ونصائح عملية من كتّاب زاروا هاد الوجهات بأنفسهم.</p>
+  </section>
+
+  <section class="container">
+    {
+      featured.length > 0 && (
+        <>
+          <div class="section-title">
+            <h2>مقالات مميزة</h2>
+          </div>
+          <div class="article-grid">
+            {featured.map((article) => (
+              <ArticleCard article={article} />
+            ))}
+          </div>
+        </>
+      )
+    }
+
+    <div class="section-title">
+      <h2>أحدث المقالات</h2>
+      <a href="/articles">شوف الكل &larr;</a>
+    </div>
+    <div class="article-grid">
+      {latest.map((article) => (
+        <ArticleCard article={article} />
+      ))}
+    </div>
+  </section>
+</BaseLayout>

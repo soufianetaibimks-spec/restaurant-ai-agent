@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import ArticleCard from '../../components/ArticleCard.astro';
+import { getCollection } from 'astro:content';
+
+const allArticles = (await getCollection('articles')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+---
+
+<BaseLayout
+  title="كل المقالات"
+  description="تصفح كل دلائل ومقالات السفر ديالنا حسب الوجهة."
+>
+  <section class="hero container">
+    <h1>كل المقالات</h1>
+    <p>{allArticles.length} مقال ودليل سفر، وكيزيد العدد كل أسبوع.</p>
+  </section>
+
+  <section class="container">
+    <div class="article-grid">
+      {allArticles.map((article) => (
+        <ArticleCard article={article} />
+      ))}
+    </div>
+  </section>
+</BaseLayout>

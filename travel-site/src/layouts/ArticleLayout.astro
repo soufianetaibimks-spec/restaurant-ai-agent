@@ -1,0 +1,81 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { Image } from 'astro:assets';
+
+interface Props {
+  title: string;
+  description: string;
+  pubDate: Date;
+  updatedDate?: Date;
+  heroImage?: ImageMetadata;
+  heroImageAlt?: string;
+  destination: string;
+  country: string;
+  tags: string[];
+  author: string;
+  readingTime?: string;
+}
+
+const {
+  title,
+  description,
+  pubDate,
+  updatedDate,
+  heroImage,
+  heroImageAlt,
+  destination,
+  country,
+  tags,
+  author,
+  readingTime,
+} = Astro.props;
+
+const dateFormatted = pubDate.toLocaleDateString('ar-MA', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+---
+
+<BaseLayout title={title} description={description}>
+  <article>
+    <header class="article-header container">
+      <p class="card-meta">{destination} · {country}</p>
+      <h1>{title}</h1>
+      <p class="byline">
+        بقلم {author} · {dateFormatted}
+        {readingTime && <> · {readingTime}</>}
+      </p>
+    </header>
+
+    {
+      heroImage && (
+        <div class="article-hero-image">
+          <Image src={heroImage} alt={heroImageAlt ?? title} width={1200} height={600} />
+        </div>
+      )
+    }
+
+    <div class="prose">
+      <slot />
+
+      {
+        tags.length > 0 && (
+          <div class="tag-list">
+            {tags.map((tag) => (
+              <span class="tag">#{tag}</span>
+            ))}
+          </div>
+        )
+      }
+
+      {
+        updatedDate && (
+          <p style="margin-top:2rem; font-size:0.85rem; color:var(--color-text-muted);">
+            آخر تحديث: {updatedDate.toLocaleDateString('ar-MA', { year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        )
+      }
+    </div>
+  </article>
+</BaseLayout>
