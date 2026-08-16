@@ -1,13 +1,12 @@
 ---
 import BaseLayout from './BaseLayout.astro';
-import { Image } from 'astro:assets';
 
 interface Props {
   title: string;
   description: string;
   pubDate: Date;
   updatedDate?: Date;
-  heroImage?: ImageMetadata;
+  heroImage?: string;
   heroImageAlt?: string;
   destination: string;
   country: string;
@@ -51,7 +50,7 @@ const dateFormatted = pubDate.toLocaleDateString('ar-MA', {
     {
       heroImage && (
         <div class="article-hero-image">
-          <Image src={heroImage} alt={heroImageAlt ?? title} width={1200} height={600} />
+          <img src={heroImage} alt={heroImageAlt ?? title} width="1200" height="600" />
         </div>
       )
     }

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" role="img" aria-label="رسم توضيحي لكثبان الصحراء بمرزوكة عند الغروب مع قافلة جمال">
+  <defs>
+    <linearGradient id="mz-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b2557"/>
+      <stop offset="45%" stop-color="#a3496b"/>
+      <stop offset="100%" stop-color="#e8834f"/>
+    </linearGradient>
+    <linearGradient id="mz-sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd79a"/>
+      <stop offset="100%" stop-color="#f2a65a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="750" fill="url(#mz-sky)"/>
+  <circle cx="620" cy="420" r="110" fill="url(#mz-sun)"/>
+
+  <!-- stars -->
+  <g fill="#fdfaf6" opacity="0.8">
+    <circle cx="120" cy="90" r="2.5"/>
+    <circle cx="220" cy="150" r="2"/>
+    <circle cx="340" cy="70" r="2"/>
+    <circle cx="900" cy="100" r="2.5"/>
+    <circle cx="1020" cy="160" r="2"/>
+    <circle cx="1080" cy="80" r="2"/>
+  </g>
+
+  <!-- far dunes -->
+  <path d="M0 500 Q150 440 320 500 T650 490 T1000 505 T1200 480 V750 H0 Z" fill="#c9683a" opacity="0.85"/>
+  <!-- mid dunes -->
+  <path d="M0 560 Q200 500 420 560 T820 550 T1200 570 V750 H0 Z" fill="#a94f2a"/>
+  <!-- near dunes -->
+  <path d="M0 630 Q250 580 500 630 T950 615 T1200 640 V750 H0 Z" fill="#7c3a17"/>
+
+  <!-- camel caravan silhouette -->
+  <g fill="#3a1c0c">
+    <path d="M300 630 q10 -30 26 -30 q4 -14 16 -14 q10 0 12 10 q10 -2 14 8 q10 -2 12 8 l4 18 q0 8 -8 8 h-70 q-10 0 -6 -8 Z"/>
+    <rect x="322" y="600" width="4" height="14"/>
+    <rect x="360" y="592" width="4" height="16"/>
+    <circle cx="382" cy="588" r="10" fill="#3a1c0c"/>
+    <rect x="303" y="655" width="3" height="14"/>
+    <rect x="318" y="658" width="3" height="12"/>
+    <rect x="340" y="658" width="3" height="12"/>
+    <rect x="360" y="655" width="3" height="14"/>
+
+    <path d="M440 645 q9 -26 22 -26 q3 -12 14 -12 q9 0 10 9 q9 -2 12 7 q9 -2 10 7 l3 15 q0 7 -7 7 h-60 q-8 0 -4 -7 Z"/>
+    <rect x="458" y="619" width="3" height="12"/>
+    <rect x="470" y="662" width="3" height="10"/>
+    <rect x="485" y="664" width="3" height="8"/>
+  </g>
+
+  <!-- ground shadow line -->
+  <path d="M0 660 Q300 615 600 655 T1200 645 V750 H0 Z" fill="#5c2c14" opacity="0.4"/>
+</svg>

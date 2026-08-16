@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" role="img" aria-label="رسم توضيحي لمئذنة الكتبية بمراكش عند الغروب">
+  <defs>
+    <linearGradient id="mk-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f2a65a"/>
+      <stop offset="45%" stop-color="#e8834f"/>
+      <stop offset="100%" stop-color="#c1622d"/>
+    </linearGradient>
+    <linearGradient id="mk-sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe3b3"/>
+      <stop offset="100%" stop-color="#ffcf80"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="750" fill="url(#mk-sky)"/>
+  <circle cx="600" cy="430" r="150" fill="url(#mk-sun)" opacity="0.85"/>
+
+  <!-- distant city silhouette -->
+  <g fill="#7c3a17" opacity="0.55">
+    <rect x="60" y="520" width="70" height="120"/>
+    <rect x="150" y="490" width="55" height="150"/>
+    <rect x="980" y="500" width="60" height="140"/>
+    <rect x="1070" y="470" width="70" height="170"/>
+  </g>
+
+  <!-- palm trees -->
+  <g fill="#5c2c14">
+    <rect x="230" y="470" width="14" height="170"/>
+    <path d="M237 470 Q160 430 130 460 Q195 460 237 490 Z"/>
+    <path d="M237 470 Q310 425 350 450 Q290 460 237 490 Z"/>
+    <path d="M237 470 Q200 400 210 360 Q245 420 237 490 Z"/>
+    <path d="M237 470 Q270 400 265 355 Q235 420 237 490 Z"/>
+
+    <rect x="940" y="480" width="13" height="160"/>
+    <path d="M946 480 Q880 445 855 470 Q910 470 946 495 Z"/>
+    <path d="M946 480 Q1010 440 1045 460 Q995 470 946 495 Z"/>
+    <path d="M946 480 Q915 415 925 380 Q955 435 946 495 Z"/>
+  </g>
+
+  <!-- koutoubia minaret -->
+  <g fill="#8a3d1c">
+    <rect x="560" y="220" width="80" height="330"/>
+    <rect x="545" y="200" width="110" height="26" rx="3"/>
+    <rect x="575" y="150" width="50" height="55"/>
+    <polygon points="560,150 640,150 600,110"/>
+    <rect x="592" y="90" width="16" height="26"/>
+    <circle cx="600" cy="86" r="6"/>
+    <rect x="580" y="260" width="40" height="60" fill="#f2a65a" opacity="0.5"/>
+    <rect x="580" y="340" width="40" height="60" fill="#f2a65a" opacity="0.5"/>
+    <rect x="580" y="420" width="40" height="60" fill="#f2a65a" opacity="0.5"/>
+  </g>
+
+  <!-- ground -->
+  <rect x="0" y="640" width="1200" height="110" fill="#4a2410"/>
+  <rect x="0" y="636" width="1200" height="8" fill="#8a3d1c"/>
+</svg>

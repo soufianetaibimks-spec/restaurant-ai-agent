@@ -1,5 +1,4 @@
 ---
-import { Image } from 'astro:assets';
 import type { CollectionEntry } from 'astro:content';
 
 interface Props {
@@ -15,7 +14,7 @@ const dateFormatted = pubDate.toLocaleDateString('ar-MA', { year: 'numeric', mon
   {
     heroImage && (
       <a href={`/articles/${article.id}`}>
-        <Image src={heroImage} alt={heroImageAlt ?? title} width={600} height={375} />
+        <img src={heroImage} alt={heroImageAlt ?? title} width="600" height="375" loading="lazy" />
       </a>
     )
   }
