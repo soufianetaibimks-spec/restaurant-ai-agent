@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Build the vertical chocolate-truffle video.
+"""Build the vertical avocado chocolate-truffle video.
 
-Merges five clips (in the order given) into one 1080x1920 video with short
-crossfades, adds an en-US-JennyNeural voiceover (edge-tts), one sentence per
-clip, ducks the original audio to 20% while the voice speaks, and burns each
-sentence in as an on-screen caption.
+Five shots, each paired with one voiceover line (edge-tts, en-US-JennyNeural):
+every clip is cut to the length of its line (trimmed, or slowed down slightly
+when the voice is longer than the footage), scaled to 1080x1920, joined with
+short crossfades, captioned with its line, and mixed with the voice while the
+original audio sits at 15% under it.
 
-A clip may also be a still image; it is shown for CLIP_SECONDS with a slow zoom.
+A shot may also be a still image; it is shown with a slow zoom.
 
 Usage:
-    python3 scripts/make_truffle_video.py cutting.mp4 processor.mp4 \
-        rolling.mp4 holding.mp4 breaking.mp4 -o final.mp4
+    python3 scripts/make_truffle_video.py hook.mp4 board.mp4 processor.mp4 \
+        rolling.mp4 bite.mp4 -o final.mp4
 
-If edge-tts cannot reach its server, the video is still built (with captions,
-fades and original audio) and a warning is printed. Pass --no-voice to skip it.
+If edge-tts cannot reach its server, the video is still built with estimated
+line lengths, captions and fades but no voice, and a warning is printed.
 """
 import argparse
 import asyncio
@@ -24,19 +25,23 @@ import sys
 import tempfile
 
 W, H, FPS = 1080, 1920, 30
-FADE = 0.5           # crossfade length between clips (s)
-CLIP_SECONDS = 10.0  # length used for still images
+FADE = 0.4          # crossfade between shots (s)
+LEAD = 0.3          # silence before the line, after the incoming fade (s)
+TAIL = 0.3          # silence after the line, before the outgoing fade (s)
+MAX_SLOWDOWN = 1.35  # never stretch footage more than this
 VOICE = "en-US-JennyNeural"
-VOICE_DELAY = 0.8    # voice starts this long after its clip begins (s)
-DUCK = 0.2           # original-audio level while the voice speaks
+DUCK = 0.15         # original-audio level under the voice
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-SENTENCES = [
-    "Start by chopping your ingredients.",
-    "Blend everything until smooth.",
-    "Roll the mixture into small balls.",
-    "Perfectly round and ready.",
-    "Break one open and enjoy!",
+# (line, where the trimmed window sits in the source clip)
+#   ("start", t): window begins at t seconds
+#   ("end", t):   window ends at t seconds
+SHOTS = [
+    ("Zero sugar... and you'll never guess the secret ingredient.", ("start", 5.0)),
+    ("Ripe avocado, a few dates, and raw cocoa. That's it.", ("start", 3.0)),
+    ("One minute in the processor... and the green completely disappears.", ("end", 7.0)),
+    ("Roll them, coat them in cocoa, and chill for 30 minutes.", ("start", 1.5)),
+    ("Silky, fudgy, pure chocolate. Save this before you lose it!", ("start", 0.0)),
 ]
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -55,37 +60,10 @@ def probe(path):
             any(s["codec_type"] == "audio" for s in info["streams"]))
 
 
-def normalize(src, dst):
-    """Re-encode one clip to 1080x1920@30fps with a stereo 48k audio track."""
-    fit = (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-           f"crop={W}:{H},setsar=1,fps={FPS},format=yuv420p")
-    if os.path.splitext(src)[1].lower() in IMAGE_EXTS:
-        frames = int(CLIP_SECONDS * FPS)
-        vf = (f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase,crop={W * 2}:{H * 2},"
-              f"zoompan=z='1+0.08*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-              f":d={frames}:s={W}x{H}:fps={FPS},setsar=1,format=yuv420p")
-        run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", src,
-             "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-             "-vf", vf, "-t", str(CLIP_SECONDS), "-map", "0:v", "-map", "1:a",
-             "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-             "-c:a", "aac", "-b:a", "192k", "-shortest", dst])
-        return
-    _, has_audio = probe(src)
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src]
-    if has_audio:
-        amap = ["-map", "0:a:0"]
-    else:
-        cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
-        amap = ["-map", "1:a", "-shortest"]
-    run(cmd + ["-vf", fit, "-map", "0:v:0", *amap, "-af", "aresample=48000",
-               "-ac", "2", "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-               "-c:a", "aac", "-b:a", "192k", dst])
-
-
 async def _tts(out_dir):
     import edge_tts
     paths = []
-    for i, text in enumerate(SENTENCES, 1):
+    for i, (text, _) in enumerate(SHOTS, 1):
         p = os.path.join(out_dir, f"voice{i}.mp3")
         await edge_tts.Communicate(text, VOICE, proxy=os.environ.get("HTTPS_PROXY")).save(p)
         paths.append(p)
@@ -94,97 +72,157 @@ async def _tts(out_dir):
 
 def make_voice(out_dir):
     try:
-        paths = asyncio.run(_tts(out_dir))
+        return asyncio.run(_tts(out_dir))
     except Exception as e:  # network blocked, edge-tts missing, ...
         print(f"WARNING: voiceover skipped, edge-tts failed: {e!r}", file=sys.stderr)
         return None
-    return paths
+
+
+def estimate_speech(text):
+    """Rough Jenny speaking time, used only when no voice file exists."""
+    return len(text.split()) / 2.7 + 0.4 * text.count("...") + 0.25 * text.count(".")
+
+
+def render_shot(src, window, length, dst):
+    """Cut `length` seconds of `src` at `window`, at 1080x1920@30 with stereo audio."""
+    if os.path.splitext(src)[1].lower() in IMAGE_EXTS:
+        frames = int(round(length * FPS))
+        vf = (f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase,crop={W * 2}:{H * 2},"
+              f"zoompan=z='1+0.10*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+              f":d={frames}:s={W}x{H}:fps={FPS},setsar=1,format=yuv420p")
+        run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", src,
+             "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+             "-vf", vf, "-t", f"{length:.3f}", "-map", "0:v", "-map", "1:a",
+             "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+             "-c:a", "aac", "-b:a", "192k", dst])
+        return 1.0
+
+    dur, has_audio = probe(src)
+    mode, t = window
+    # Footage available for this shot, then how much it must be stretched.
+    if mode == "end":
+        avail = min(t, dur)
+        speed = max(1.0, length / avail)
+        start = max(0.0, avail - length / speed)
+    else:
+        start = min(t, dur)
+        avail = dur - start
+        speed = max(1.0, length / avail)
+        if speed > MAX_SLOWDOWN:  # pull the window earlier rather than over-stretch
+            start = max(0.0, dur - length / MAX_SLOWDOWN)
+            speed = max(1.0, length / (dur - start))
+    src_len = length / speed
+
+    fit = (f"setpts={speed:.5f}*(PTS-STARTPTS),scale={W}:{H}:force_original_aspect_ratio=increase,"
+           f"crop={W}:{H},setsar=1,fps={FPS},format=yuv420p")
+    cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{src_len:.3f}", "-i", src]
+    if has_audio:
+        af = f"aresample=48000,atempo={1 / speed:.5f},apad"
+        amap = ["-map", "0:a:0"]
+    else:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        af = "aresample=48000"
+        amap = ["-map", "1:a"]
+    run(cmd + ["-vf", fit, "-af", af, "-map", "0:v:0", *amap, "-ac", "2",
+               "-t", f"{length:.3f}", "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+               "-c:a", "aac", "-b:a", "192k", dst])
+    return speed
+
+
+def wrap(text, max_chars=20):
+    """Greedy word wrap for captions."""
+    lines, cur = [], ""
+    for word in text.split():
+        if cur and len(cur) + 1 + len(word) > max_chars:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}".strip()
+    return lines + [cur]
 
 
 def caption_escape(text):
     return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
 
 
-def wrap(text, max_chars=22):
-    """Split a caption into at most two balanced lines."""
-    if len(text) <= max_chars:
-        return [text]
-    words = text.split()
-    best = min(range(1, len(words)),
-               key=lambda k: abs(len(" ".join(words[:k])) - len(" ".join(words[k:]))))
-    return [" ".join(words[:best]), " ".join(words[best:])]
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("clips", nargs=5, help="five clips in final order")
+    ap.add_argument("clips", nargs=len(SHOTS), help="clips in shot order")
     ap.add_argument("-o", "--output", default="final.mp4")
     ap.add_argument("--no-voice", action="store_true")
     args = ap.parse_args()
 
     tmp = tempfile.mkdtemp(prefix="truffle_")
-    norm = []
-    for i, src in enumerate(args.clips):
-        dst = os.path.join(tmp, f"clip{i}.mp4")
-        normalize(src, dst)
-        norm.append(dst)
-    durs = [probe(p)[0] for p in norm]
-    starts = [0.0]
-    for d in durs[:-1]:
-        starts.append(starts[-1] + d - FADE)
-    total = starts[-1] + durs[-1]
-
     voices = None if args.no_voice else make_voice(tmp)
+    speech = ([probe(p)[0] for p in voices] if voices
+              else [estimate_speech(text) for text, _ in SHOTS])
+
+    n = len(SHOTS)
+    # Each shot holds its line plus breathing room, plus the fades it shares.
+    lengths = [LEAD + s + TAIL + (FADE if i else 0) + (FADE if i < n - 1 else 0)
+               for i, s in enumerate(speech)]
+    starts = [0.0]
+    for d in lengths[:-1]:
+        starts.append(starts[-1] + d - FADE)
+    total = starts[-1] + lengths[-1]
+    speech_at = [starts[i] + (FADE if i else 0) + LEAD for i in range(n)]
+
+    shots = []
+    for i, (src, (text, window)) in enumerate(zip(args.clips, SHOTS)):
+        dst = os.path.join(tmp, f"shot{i}.mp4")
+        speed = render_shot(src, window, lengths[i], dst)
+        print(f"shot {i + 1}: {lengths[i]:.2f}s"
+              + (f" (slowed {speed:.2f}x)" if speed > 1.001 else ""))
+        shots.append(dst)
 
     inputs = []
-    for p in norm:
+    for p in shots + (voices or []):
         inputs += ["-i", p]
-    if voices:
-        for p in voices:
-            inputs += ["-i", p]
 
     fc = []
-    # Crossfade video and audio clip by clip.
     v, a = "[0:v]", "[0:a]"
-    for i in range(1, len(norm)):
+    for i in range(1, n):
         fc.append(f"{v}[{i}:v]xfade=transition=fade:duration={FADE}:offset={starts[i]:.3f}[v{i}]")
         fc.append(f"{a}[{i}:a]acrossfade=d={FADE}[a{i}]")
         v, a = f"[v{i}]", f"[a{i}]"
 
-    # Captions: one per clip, centred in the lower third, wrapped to two lines.
-    for i, text in enumerate(SENTENCES):
-        t0 = starts[i] + (FADE if i else 0.2)
-        t1 = starts[i] + durs[i] - (FADE if i < len(norm) - 1 else 0.2)
-        for j, line in enumerate(wrap(text)):
+    # Bold, centred captions in the lower-middle of the frame, shown while the
+    # shot is fully on screen.
+    size, step = 76, 98
+    for i, (text, _) in enumerate(SHOTS):
+        t0 = starts[i] + (FADE if i else 0.1)
+        t1 = starts[i] + lengths[i] - (FADE if i < n - 1 else 0.1)
+        lines = wrap(text)
+        top = f"h*0.70-{(len(lines) - 1) * step // 2}"
+        for j, line in enumerate(lines):
             fc.append(
-                f"{v}drawtext=fontfile={FONT}:text='{caption_escape(line)}':fontsize=72:"
-                f"fontcolor=white:borderw=5:bordercolor=black@0.85:"
-                f"shadowcolor=black@0.5:shadowx=3:shadowy=3:"
-                f"x=(w-text_w)/2:y=h*0.74+{j * 96}:enable='between(t,{t0:.3f},{t1:.3f})'"
+                f"{v}drawtext=fontfile={FONT}:text='{caption_escape(line)}':fontsize={size}:"
+                f"fontcolor=white:borderw=6:bordercolor=black@0.9:"
+                f"shadowcolor=black@0.6:shadowx=3:shadowy=4:"
+                f"x=(w-text_w)/2:y={top}+{j * step}:enable='between(t,{t0:.3f},{t1:.3f})'"
                 f"[c{i}_{j}]")
             v = f"[c{i}_{j}]"
 
     if voices:
         windows = []
-        for i, p in enumerate(voices):
-            start = starts[i] + VOICE_DELAY
-            dur = probe(p)[0]
-            windows.append((start, start + dur))
-            ms = int(start * 1000)
-            fc.append(f"[{len(norm) + i}:a]aresample=48000,aformat=channel_layouts=stereo,"
+        for i, s in enumerate(speech):
+            windows.append((speech_at[i], speech_at[i] + s))
+            ms = int(speech_at[i] * 1000)
+            fc.append(f"[{n + i}:a]aresample=48000,aformat=channel_layouts=stereo,"
                       f"adelay={ms}|{ms},apad[vo{i}]")
-        cond = "+".join(f"between(t,{s - 0.15:.3f},{e + 0.15:.3f})" for s, e in windows)
+        cond = "+".join(f"between(t,{s - 0.2:.3f},{e + 0.2:.3f})" for s, e in windows)
         fc.append(f"{a}volume='if({cond},{DUCK},1)':eval=frame[bg]")
-        vo = "".join(f"[vo{i}]" for i in range(len(voices)))
-        fc.append(f"[bg]{vo}amix=inputs={len(voices) + 1}:duration=first:normalize=0[aout]")
+        vo = "".join(f"[vo{i}]" for i in range(n))
+        fc.append(f"[bg]{vo}amix=inputs={n + 1}:duration=first:normalize=0[aout]")
         a = "[aout]"
 
     run(["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(fc),
          "-map", v, "-map", a, "-t", f"{total:.3f}",
          "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
          "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", args.output])
-    print(f"wrote {args.output} ({total:.1f}s, voiceover: {'yes' if voices else 'NO'})")
+    print(f"wrote {args.output} ({total:.1f}s, voiceover: "
+          f"{'yes' if voices else 'NO - shot lengths are estimates'})")
 
 
 if __name__ == "__main__":
