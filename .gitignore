@@ -4,3 +4,5 @@
 *.mp3
 *.webm
 __pycache__/
+*.jpg
+*.png

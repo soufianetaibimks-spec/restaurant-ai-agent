@@ -44,8 +44,13 @@ SHOTS = [
     ("Ripe avocado, a few dates, and raw cocoa. That's it.", ("start", 3.0)),
     ("One minute in the processor... and the green completely disappears.", ("end", 7.0)),
     ("Roll them, coat them in cocoa, and chill for 30 minutes.", ("start", 1.5)),
-    ("Silky, fudgy, pure chocolate. Save this before you lose it!", ("start", 0.0)),
+    ("Silky, fudgy, pure chocolate. Save this before you lose it!", ("start", 4.0)),
 ]
+
+# Shots colour-matched to another shot (index -> reference index), so footage
+# from a different source cuts in without a jump in brightness or warmth.
+MATCH_COLOR = {4: 3}
+MATCH_STRENGTH = 0.8  # 1.0 copies the reference's colour statistics exactly
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
@@ -86,7 +91,28 @@ def estimate_speech(text):
     return len(text.split()) / 2.7 + 0.4 * text.count("...") + 0.25 * text.count(".")
 
 
-def render_shot(src, window, length, dst):
+def color_stats(path):
+    """Per-channel RGB mean and standard deviation of a rendered shot."""
+    import numpy as np
+    w, h = W // 8, H // 8
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", path, "-vf", f"fps=4,scale={w}:{h}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True).stdout
+    px = np.frombuffer(raw, np.uint8).reshape(-1, 3).astype(np.float64)
+    return px.mean(0), px.std(0)
+
+
+def match_filter(src_stats, ref_stats, strength=MATCH_STRENGTH):
+    """lutrgb filter moving each channel's mean/contrast toward the reference."""
+    exprs = []
+    for c, (ms, ss, mr, sr) in zip("rgb", zip(*src_stats, *ref_stats)):
+        gain = 1 + strength * (sr / max(ss, 1e-6) - 1)
+        offset = strength * (mr - ms)
+        exprs.append(f"{c}='clip({ms + offset:.3f}+(val-{ms:.3f})*{gain:.4f},0,255)'")
+    return "lutrgb=" + ":".join(exprs)
+
+
+def render_shot(src, window, length, dst, grade=""):
     """Cut `length` seconds of `src` at `window`, at 1080x1920@30 with stereo audio."""
     if os.path.splitext(src)[1].lower() in IMAGE_EXTS:
         frames = int(round(length * FPS))
@@ -117,7 +143,7 @@ def render_shot(src, window, length, dst):
     src_len = length / speed
 
     fit = (f"setpts={speed:.5f}*(PTS-STARTPTS),scale={W}:{H}:force_original_aspect_ratio=increase,"
-           f"crop={W}:{H},setsar=1,fps={FPS},format=yuv420p")
+           f"crop={W}:{H},{grade + ',' if grade else ''}setsar=1,fps={FPS},format=yuv420p")
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{src_len:.3f}", "-i", src]
     if has_audio:
         af = f"aresample=48000,atempo={1 / speed:.5f},apad"
@@ -180,8 +206,12 @@ def main():
     for i, (src, (text, window)) in enumerate(zip(args.clips, SHOTS)):
         dst = os.path.join(tmp, f"shot{i}.mp4")
         speed = render_shot(src, window, lengths[i], dst)
-        print(f"shot {i + 1}: {lengths[i]:.2f}s"
-              + (f" (slowed {speed:.2f}x)" if speed > 1.001 else ""))
+        note = f" (slowed {speed:.2f}x)" if speed > 1.001 else ""
+        if i in MATCH_COLOR:
+            grade = match_filter(color_stats(dst), color_stats(shots[MATCH_COLOR[i]]))
+            render_shot(src, window, lengths[i], dst, grade)
+            note += f" (colour-matched to shot {MATCH_COLOR[i] + 1}: {grade})"
+        print(f"shot {i + 1}: {lengths[i]:.2f}s{note}")
         shots.append(dst)
 
     inputs = []
