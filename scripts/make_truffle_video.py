@@ -13,6 +13,9 @@ Usage:
     python3 scripts/make_truffle_video.py hook.mp4 board.mp4 processor.mp4 \
         rolling.mp4 bite.mp4 -o final.mp4
 
+Voice files recorded elsewhere (e.g. ElevenLabs) can be passed in shot order
+with --voices; edge-tts is then skipped.
+
 If edge-tts cannot reach its server, the video is still built with estimated
 line lengths, captions and fades but no voice, and a warning is printed.
 """
@@ -27,7 +30,7 @@ import tempfile
 W, H, FPS = 1080, 1920, 30
 FADE = 0.4          # crossfade between shots (s)
 LEAD = 0.3          # silence before the line, after the incoming fade (s)
-TAIL = 0.3          # silence after the line, before the outgoing fade (s)
+TAIL = 0.5          # pause after the line, before the outgoing fade (s)
 MAX_SLOWDOWN = 1.35  # never stretch footage more than this
 VOICE = "en-US-JennyNeural"
 DUCK = 0.15         # original-audio level under the voice
@@ -150,11 +153,16 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("clips", nargs=len(SHOTS), help="clips in shot order")
     ap.add_argument("-o", "--output", default="final.mp4")
+    ap.add_argument("--voices", nargs=len(SHOTS), metavar="AUDIO",
+                    help="pre-recorded voice files in shot order (skips edge-tts)")
     ap.add_argument("--no-voice", action="store_true")
     args = ap.parse_args()
 
     tmp = tempfile.mkdtemp(prefix="truffle_")
-    voices = None if args.no_voice else make_voice(tmp)
+    if args.voices:
+        voices = args.voices
+    else:
+        voices = None if args.no_voice else make_voice(tmp)
     speech = ([probe(p)[0] for p in voices] if voices
               else [estimate_speech(text) for text, _ in SHOTS])
 
