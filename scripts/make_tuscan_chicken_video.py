@@ -55,6 +55,9 @@ TEXTS = [  # (text, start, end, size)
 ]
 TEXT_Y = 0.13         # cards sit in the top band, above the skillet
 TEXT_FADE = 0.3
+# Optional big hook: (lines, start, end, size, y). It is on screen from its
+# first frame (no fade-in) and fades out like the other cards.
+HOOK = None
 MARK = "Spoon & Hearth"
 MARK_SIZE = 38
 
@@ -196,19 +199,27 @@ def main():
         v = f"[x{i}]"
     count = [0]
 
-    def draw(txt, size, x, y, t0, t1, fade):
+    def draw(txt, size, x, y, t0, t1, fade, fade_in=None):
         nonlocal v
         count[0] += 1
-        alpha = (f"if(lt(t,{t0 + fade:.3f}),(t-{t0:.3f})/{fade},"
-                 f"if(gt(t,{t1 - fade:.3f}),max(0,({t1:.3f}-t)/{fade}),1))")
+        fade_in = fade if fade_in is None else fade_in
+        alpha = f"if(gt(t,{t1 - fade:.3f}),max(0,({t1:.3f}-t)/{fade}),1)"
+        if fade_in:
+            alpha = f"if(lt(t,{t0 + fade_in:.3f}),(t-{t0:.3f})/{fade_in},{alpha})"
         fc.append(f"{v}drawtext=fontfile={args.font}:text='{esc(txt)}':fontsize={size}:"
                   f"fontcolor=white:shadowcolor=black@0.7:shadowx=3:shadowy=5:"
                   f"borderw=3:bordercolor=black@0.5:x={x}:y={y}:alpha='{alpha}':"
                   f"enable='between(t,{t0:.3f},{t1:.3f})'[t{count[0]}]")
         v = f"[t{count[0]}]"
 
-    for txt, t0, t1, size in TEXTS:
-        draw(txt, size, "(w-text_w)/2", f"h*{TEXT_Y}", t0, t1, TEXT_FADE)
+    if HOOK:
+        lines, t0, t1, size, y = HOOK
+        for j, line in enumerate(lines):
+            draw(line, size, "(w-text_w)/2", f"h*{y}+{int(j * size * 1.15)}", t0, t1, TEXT_FADE,
+                 fade_in=0)
+    for txt, t0, t1, size in TEXTS:  # "\n" splits a card over two lines
+        for j, line in enumerate(txt.split("\n")):
+            draw(line, size, "(w-text_w)/2", f"h*{TEXT_Y}+{int(j * size * 1.2)}", t0, t1, TEXT_FADE)
     # Brand mark over the final bite shot: the last shot of the last clip.
     last_shot = find_shots(args.clips[-1], durs[-1])[-1][0]
     mark_t0 = v_start[-1] + last_shot * v_len[-1] / durs[-1]
