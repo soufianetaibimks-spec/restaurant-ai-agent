@@ -60,6 +60,7 @@ TEXT_FADE = 0.3
 HOOK = None
 MARK = "Spoon & Hearth"
 MARK_SIZE = 38
+MARK_FROM = None      # source time in the last clip where the mark starts; None = its last cut
 
 
 def separate(src, model, tmp, tag):
@@ -221,7 +222,7 @@ def main():
         for j, line in enumerate(txt.split("\n")):
             draw(line, size, "(w-text_w)/2", f"h*{TEXT_Y}+{int(j * size * 1.2)}", t0, t1, TEXT_FADE)
     # Brand mark over the final bite shot: the last shot of the last clip.
-    last_shot = find_shots(args.clips[-1], durs[-1])[-1][0]
+    last_shot = MARK_FROM if MARK_FROM is not None else find_shots(args.clips[-1], durs[-1])[-1][0]
     mark_t0 = v_start[-1] + last_shot * v_len[-1] / durs[-1]
     draw(MARK, MARK_SIZE, f"w-text_w-56", f"h-text_h-{int(H * 0.06)}", mark_t0, total + 1, 0.4)
     log.append(f"  '{MARK}' from {mark_t0:.2f}s (final bite shot) to the end")
