@@ -61,6 +61,12 @@ HOOK = None
 MARK = "Spoon & Hearth"
 MARK_SIZE = 38
 MARK_FROM = None      # source time in the last clip where the mark starts; None = its last cut
+# Optional {clip index: [(start, end), ...]} spans removed from the separated
+# voice only (e.g. a line recorded twice). Later speech slides earlier; the
+# cooking sound stays where it is, in sync with the picture.
+VOICE_CUTS = {}
+SPLICE = 0.01         # s, crossfade at each voice splice
+CLIP_SECONDS = None   # trim each clip's silent tail to this length (e.g. 8.0 for a 24s total)
 
 
 def separate(src, model, tmp, tag):
@@ -87,6 +93,18 @@ def duck_curve(n, words):
     k = int(DUCK_RAMP * SR)
     kernel = np.ones(k) / k
     return np.convolve(np.pad(g, (k, k), mode="edge"), kernel, mode="same")[k:-k]
+
+
+def cut_voice(voice, words, a, b):
+    """Remove [a, b) seconds from the voice, pad its end with silence, shift the words."""
+    i, j, k = int(a * SR), int(b * SR), int(SPLICE * SR)
+    head, tail = voice[:, :i].copy(), voice[:, j:].copy()
+    ramp = np.linspace(0, 1, k)
+    head[:, -k:] = head[:, -k:] * ramp[::-1] + tail[:, :k] * ramp
+    out = np.concatenate([head, tail[:, k:], np.zeros((2, j - i + k))], axis=1)
+    shifted = [(w, s - (b - a), e - (b - a)) if s >= b else (w, s, e)
+               for w, s, e in words if s >= b or e <= a]
+    return out[:, :voice.shape[1]], shifted
 
 
 def write_wav(path, x):
@@ -129,8 +147,19 @@ def main():
 
     words = [c["words"] for c in json.load(open(args.words))]
     n = len(args.clips)
-    durs = [duration(c) for c in args.clips]
     tmp = tempfile.mkdtemp(prefix="tuscan_")
+    if CLIP_SECONDS:
+        clips = []
+        for i, src in enumerate(args.clips):
+            if duration(src) > CLIP_SECONDS + 1e-3:
+                assert words[i][-1][2] < CLIP_SECONDS, f"trim would cut speech in clip {i + 1}"
+                cut = os.path.join(tmp, f"trim{i}.mkv")
+                run(["ffmpeg", "-v", "error", "-y", "-i", src, "-t", f"{CLIP_SECONDS:.3f}",
+                     "-c:v", "libx264", "-crf", "10", "-preset", "fast", "-c:a", "pcm_s16le", cut])
+                src = cut
+            clips.append(src)
+        args.clips = clips
+    durs = [duration(c) for c in args.clips]
     log = []
 
     # ---- timeline: audio back to back; picture overlaps by FADE/2 each side of a join
@@ -173,8 +202,14 @@ def main():
     pieces = []
     for i, src in enumerate(args.clips):
         x, voice = separate(src, args.spleeter, tmp, i)
-        g = duck_curve(x.shape[1], words[i])
-        y = voice + g * (x - voice)          # = g*x + (1-g)*voice
+        cooking = x - voice
+        clip_words = words[i]
+        for a, b in sorted(VOICE_CUTS.get(i, []), reverse=True):
+            voice, clip_words = cut_voice(voice, clip_words, a, b)
+            log.append(f"  clip {i + 1} audio: removed {a:.2f}-{b:.2f}s from the voice, "
+                       f"later speech moved {b - a:.2f}s earlier")
+        g = duck_curve(x.shape[1], clip_words)
+        y = voice + g * cooking
         j = int(JOIN_FADE * SR)
         ramp = np.linspace(0, 1, j)
         if i:
