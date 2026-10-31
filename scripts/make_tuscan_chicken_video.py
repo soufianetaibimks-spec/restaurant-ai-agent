@@ -67,6 +67,13 @@ MARK_FROM = None      # source time in the last clip where the mark starts; None
 VOICE_CUTS = {}
 SPLICE = 0.01         # s, crossfade at each voice splice
 CLIP_SECONDS = None   # trim each clip's silent tail to this length (e.g. 8.0 for a 24s total)
+# Optional background music: (wav path, level in dB relative to the voice, extra dip in dB
+# while the voice speaks). The level is set against the voice's RMS while speaking.
+MUSIC = None
+MUSIC_RAMP = 0.25     # s, smoothing of the music dip
+# Optional pre-rendered full-frame RGBA text cards (e.g. with colour emoji):
+# [(png path, start, end, fade in, fade out)], overlaid on top of everything.
+IMAGE_CARDS = []
 
 
 def separate(src, model, tmp, tag):
@@ -105,6 +112,26 @@ def cut_voice(voice, words, a, b):
     shifted = [(w, s - (b - a), e - (b - a)) if s >= b else (w, s, e)
                for w, s, e in words if s >= b or e <= a]
     return out[:, :voice.shape[1]], shifted
+
+
+def add_music(track, speech, log):
+    """Mix MUSIC under the track: level set against the voice, dipped while it speaks."""
+    path, level_db, dip_db = MUSIC
+    raw = run(["ffmpeg", "-v", "error", "-i", path, "-ar", str(SR), "-ac", "2", "-f", "f32le", "-"],
+              capture_output=True).stdout
+    m = np.frombuffer(raw, np.float32).reshape(-1, 2).T.astype(np.float64)
+    n = track.shape[1]
+    m = np.pad(m, ((0, 0), (0, max(0, n - m.shape[1]))))[:, :n]
+    mask = np.zeros(n, bool)
+    for a, b in speech:
+        mask[int(max(0, a) * SR):int(b * SR)] = True
+    rms = lambda x, sel: np.sqrt((x[:, sel] ** 2).mean())
+    m *= rms(track, mask) * 10 ** (level_db / 20) / max(rms(m, m.any(0)), 1e-9)
+    g = np.where(mask, 10 ** (-dip_db / 20), 1.0)
+    k = int(MUSIC_RAMP * SR)
+    g = np.convolve(np.pad(g, (k, k), mode="edge"), np.ones(k) / k, mode="same")[k:-k]
+    log.append(f"  music: {level_db:+.0f} dB vs voice, a further -{dip_db:.0f} dB while she speaks")
+    return track + m * g
 
 
 def write_wav(path, x):
@@ -199,7 +226,7 @@ def main():
         vids.append(dst)
 
     # ---- audio: duck the cooking sound under the voice, join back to back
-    pieces = []
+    pieces, speech = [], []
     for i, src in enumerate(args.clips):
         x, voice = separate(src, args.spleeter, tmp, i)
         cooking = x - voice
@@ -208,6 +235,7 @@ def main():
             voice, clip_words = cut_voice(voice, clip_words, a, b)
             log.append(f"  clip {i + 1} audio: removed {a:.2f}-{b:.2f}s from the voice, "
                        f"later speech moved {b - a:.2f}s earlier")
+        speech += [(a_start[i] + a, a_start[i] + b) for _, a, b in clip_words]
         g = duck_curve(x.shape[1], clip_words)
         y = voice + g * cooking
         j = int(JOIN_FADE * SR)
@@ -218,8 +246,11 @@ def main():
             y[:, -j:] *= ramp[::-1]
         log.append(f"  clip {i + 1} audio: voice separated, cooking sound x{DUCK} under speech")
         pieces.append(y)
+    track = np.concatenate(pieces, axis=1)
+    if MUSIC:
+        track = add_music(track, speech, log)
     joined = os.path.join(tmp, "joined.wav")
-    write_wav(joined, np.concatenate(pieces, axis=1))
+    write_wav(joined, track)
     final_audio = os.path.join(tmp, "final.wav")
     run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-af",
          loudnorm_apply(loudnorm_measure(joined)) + ",aresample=48000", "-ar", "48000", final_audio])
@@ -229,6 +260,8 @@ def main():
     for v in vids:
         ins += ["-i", v]
     ins += ["-i", final_audio]
+    for png, *_ in IMAGE_CARDS:
+        ins += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total:.3f}", "-i", png]
     v = "[0:v]"
     for i in range(1, n):
         fc.append(f"{v}[{i}:v]xfade=transition=fade:duration={FADE}:offset={v_start[i]:.4f}[x{i}]")
@@ -256,11 +289,21 @@ def main():
     for txt, t0, t1, size in TEXTS:  # "\n" splits a card over two lines
         for j, line in enumerate(txt.split("\n")):
             draw(line, size, "(w-text_w)/2", f"h*{TEXT_Y}+{int(j * size * 1.2)}", t0, t1, TEXT_FADE)
+    for k, (_, t0, t1, fade_in, fade_out) in enumerate(IMAGE_CARDS):
+        chain = "format=rgba"
+        if fade_in:
+            chain += f",fade=t=in:st={t0:.3f}:d={fade_in}:alpha=1"
+        if fade_out:
+            chain += f",fade=t=out:st={t1 - fade_out:.3f}:d={fade_out}:alpha=1"
+        fc.append(f"[{n + 1 + k}:v]{chain}[card{k}]")
+        fc.append(f"{v}[card{k}]overlay=0:0:enable='between(t,{t0:.3f},{t1:.3f})'[c{k}]")
+        v = f"[c{k}]"
     # Brand mark over the final bite shot: the last shot of the last clip.
-    last_shot = MARK_FROM if MARK_FROM is not None else find_shots(args.clips[-1], durs[-1])[-1][0]
-    mark_t0 = v_start[-1] + last_shot * v_len[-1] / durs[-1]
-    draw(MARK, MARK_SIZE, f"w-text_w-56", f"h-text_h-{int(H * 0.06)}", mark_t0, total + 1, 0.4)
-    log.append(f"  '{MARK}' from {mark_t0:.2f}s (final bite shot) to the end")
+    if MARK:
+        last_shot = MARK_FROM if MARK_FROM is not None else find_shots(args.clips[-1], durs[-1])[-1][0]
+        mark_t0 = v_start[-1] + last_shot * v_len[-1] / durs[-1]
+        draw(MARK, MARK_SIZE, f"w-text_w-56", f"h-text_h-{int(H * 0.06)}", mark_t0, total + 1, 0.4)
+        log.append(f"  '{MARK}' from {mark_t0:.2f}s (final bite shot) to the end")
 
     run(["ffmpeg", "-v", "error", "-y", *ins, "-filter_complex", ";".join(fc),
          "-map", v, "-map", f"{n}:a", "-t", f"{total:.3f}", "-r", str(FPS),
