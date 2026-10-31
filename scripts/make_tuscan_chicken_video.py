@@ -74,6 +74,15 @@ MUSIC_RAMP = 0.25     # s, smoothing of the music dip
 # Optional pre-rendered full-frame RGBA text cards (e.g. with colour emoji):
 # [(png path, start, end, fade in, fade out)], overlaid on top of everything.
 IMAGE_CARDS = []
+# Fuller grade: match each shot's per-channel black level, mid-tones and highlights
+# (5th/50th/95th percentiles) toward the footage's median, LEVELS_STRENGTH of the way.
+GRADE_LEVELS = False
+LEVELS_STRENGTH = 0.8
+LEVEL_POINTS = (5, 50, 95)
+# Cooking sound (never the voice): fade it out/in over this many seconds at each join,
+# and move each clip's level this fraction of the way toward the clips' median.
+AMBIENCE_JOIN_FADE = 0.0
+AMBIENCE_MATCH = 0.0
 
 
 def separate(src, model, tmp, tag):
@@ -143,6 +152,37 @@ def write_wav(path, x):
         w.writeframes(pcm.tobytes())
 
 
+def levels(rgb):
+    """Per-channel LEVEL_POINTS percentiles of a shot, shape (3, len(LEVEL_POINTS))."""
+    return np.percentile(rgb.reshape(-1, 3), LEVEL_POINTS, axis=0).T
+
+
+def grade_levels(rgb, target):
+    """lutrgb mapping the shot's per-channel percentiles toward `target`, piecewise linear."""
+    src = levels(rgb)
+    exprs = []
+    for c, name in enumerate("rgb"):
+        xs = [0.0] + list(src[c]) + [255.0]
+        ys = [0.0] + [x + LEVELS_STRENGTH * (t - x) for x, t in zip(src[c], target[c])] + [255.0]
+        for k in range(1, len(ys)):  # keep the curve rising
+            ys[k] = max(ys[k], ys[k - 1] + 1)
+        ys = [min(y, 255.0) for y in ys]
+        expr = f"{ys[-2]:.2f}+(val-{xs[-2]:.2f})*{(ys[-1] - ys[-2]) / max(xs[-1] - xs[-2], 1):.5f}"
+        for k in range(len(xs) - 2, 0, -1):
+            seg = f"{ys[k - 1]:.2f}+(val-{xs[k - 1]:.2f})*{(ys[k] - ys[k - 1]) / max(xs[k] - xs[k - 1], 1):.5f}"
+            expr = f"if(lt(val,{xs[k]:.2f}),{seg},{expr})"
+        exprs.append(f"{name}='clip({expr},0,255)'")
+    luma = lambda lv: 0.299 * lv[0] + 0.587 * lv[1] + 0.114 * lv[2]
+    after = src + LEVELS_STRENGTH * (target - src)
+    summary = (f"black {luma(src[:, 0]):.0f}->{luma(after[:, 0]):.0f}, mid {luma(src[:, 1]):.0f}->"
+               f"{luma(after[:, 1]):.0f}, white {luma(src[:, -1]):.0f}->{luma(after[:, -1]):.0f}, "
+               f"warmth {src[0, 1] - src[2, 1]:.0f}->{after[0, 1] - after[2, 1]:.0f}")
+    return "lutrgb=" + ":".join(exprs), summary
+
+
+LEVEL_TARGET = None
+
+
 def render_stretched(src, length, dst, log):
     """Graded 1080x1920@30 picture of the whole clip, stretched to `length` seconds."""
     dur = duration(src)
@@ -150,7 +190,9 @@ def render_stretched(src, length, dst, log):
     rate = len(rgb) / dur
     parts, labels = [], []
     for k, (a, b) in enumerate(find_shots(src, dur)):
-        grade, summary = grade_for(rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))])
+        shot = rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))]
+        grade, summary = (grade_levels(shot, LEVEL_TARGET) if LEVEL_TARGET is not None
+                          else grade_for(shot))
         log.append(f"    shot {a:4.2f}-{b:4.2f}s: {summary}")
         parts.append(f"[0:v]trim={a:.4f}:{b:.4f},setpts=PTS-STARTPTS,{grade}[p{k}]")
         labels.append(f"[p{k}]")
@@ -204,11 +246,12 @@ def main():
                    f"max picture/sound offset {drift * 1000:.0f}ms at the clip edges, 0 mid-clip)")
 
     # ---- grade target from the footage itself
-    lumas, warmths = [], []
+    lumas, warmths, shot_levels = [], [], []
     for src in args.clips:
         rgb = frames(src)
         rate = len(rgb) / duration(src)
         for a, b in find_shots(src, duration(src)):
+            shot_levels.append(levels(rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))]))
             m = rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))].reshape(-1, 3).mean(0)
             lumas.append(0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2])
             warmths.append(m[0] - m[2])
@@ -217,6 +260,13 @@ def main():
     base.TARGET_CONTRAST = 62.0
     base.GRADE_STRENGTH = 0.7
     log.append(f"  grade target: luma {base.TARGET_LUMA:.0f}, warmth {base.TARGET_WARMTH:.0f}")
+    if GRADE_LEVELS:
+        global LEVEL_TARGET
+        LEVEL_TARGET = np.median(np.stack(shot_levels), axis=0)
+        LEVEL_TARGET[0] += WARMER / 2   # same gentle warm nudge, split between R and B
+        LEVEL_TARGET[2] -= WARMER / 2
+        log.append("  levels grade target (black/mid/white per R,G,B): "
+                   + " ".join("/".join(f"{v:.0f}" for v in ch) for ch in LEVEL_TARGET))
 
     vids = []
     for i, src in enumerate(args.clips):
@@ -226,10 +276,33 @@ def main():
         vids.append(dst)
 
     # ---- audio: duck the cooking sound under the voice, join back to back
-    pieces, speech = [], []
+    pieces, speech, parts = [], [], []
     for i, src in enumerate(args.clips):
         x, voice = separate(src, args.spleeter, tmp, i)
-        cooking = x - voice
+        parts.append((x, voice))
+    amb_gain = [1.0] * n
+    if AMBIENCE_MATCH:
+        quiet = []
+        for i, (x, voice) in enumerate(parts):
+            mask = np.ones(x.shape[1], bool)
+            for _, a, b in words[i]:
+                mask[int(max(0, a - 0.1) * SR):int((b + 0.1) * SR)] = False
+            amb = (x - voice)[:, mask]
+            quiet.append(20 * np.log10(np.sqrt((amb ** 2).mean()) + 1e-9))
+        ref = statistics.median(quiet)
+        amb_gain = [10 ** (AMBIENCE_MATCH * (ref - q) / 20) for q in quiet]
+        log.append("  cooking-sound level per clip (dB, between words): "
+                   + ", ".join(f"{q:.0f} -> {q + 20 * np.log10(g):.0f}" for q, g in zip(quiet, amb_gain)))
+    for i, src in enumerate(args.clips):
+        x, voice = parts[i]
+        cooking = (x - voice) * amb_gain[i]
+        if AMBIENCE_JOIN_FADE:
+            k = int(AMBIENCE_JOIN_FADE * SR)
+            ramp = np.sin(np.linspace(0, np.pi / 2, k)) ** 2
+            if i:
+                cooking[:, :k] *= ramp
+            if i < n - 1:
+                cooking[:, -k:] *= ramp[::-1]
         clip_words = words[i]
         for a, b in sorted(VOICE_CUTS.get(i, []), reverse=True):
             voice, clip_words = cut_voice(voice, clip_words, a, b)
@@ -253,7 +326,8 @@ def main():
     write_wav(joined, track)
     final_audio = os.path.join(tmp, "final.wav")
     run(["ffmpeg", "-v", "error", "-y", "-i", joined, "-af",
-         loudnorm_apply(loudnorm_measure(joined)) + ",aresample=48000", "-ar", "48000", final_audio])
+         loudnorm_apply(loudnorm_measure(joined))
+         + ",alimiter=limit=0.84:attack=5:release=60:level=false,aresample=48000", "-ar", "48000", final_audio])
 
     # ---- picture: dissolves + text
     ins, fc = [], []

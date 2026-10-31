@@ -33,9 +33,10 @@ W, H = edit.W, edit.H
 # (lines, start, end, size, top as a fraction of the height, fade in, fade out)
 CARDS = [
     (["Cottage Cheese", "Pancakes \U0001F95E"], 0.0, 4.5, 96, 0.10, 0.0, 0.3),
-    (["No Flour • No Protein Powder"], 8.3, 13.0, 56, 0.12, 0.3, 0.3),
-    (["26g Protein ✨", "Recipe on the blog"], 16.3, 21.6, 68, 0.11, 0.3, 0.3),
-    (["thespoonandhearth.com"], 21.8, 24.0, 64, 0.12, 0.3, 0.0),
+    # every card after the hook shares one size and one height
+    (["No Flour • No Protein Powder"], 8.3, 13.0, 60, 0.12, 0.3, 0.3),
+    (["26g Protein ✨", "Recipe on the blog"], 16.3, 21.6, 60, 0.12, 0.3, 0.3),
+    (["thespoonandhearth.com"], 21.8, 24.0, 60, 0.12, 0.3, 0.0),
 ]
 MUSIC_LEVEL_DB, MUSIC_DIP_DB = -18.0, 6.0
 
@@ -112,6 +113,12 @@ if __name__ == "__main__":
     edit.HOOK, edit.TEXTS, edit.MARK = None, [], None
     edit.CLIP_SECONDS = 8.0  # clips run 8.043s; their last 0.04s is silent
     edit.MUSIC = (known.music, MUSIC_LEVEL_DB, MUSIC_DIP_DB)
+    # Clip 2 (dark skillet) has crushed blacks and harsh contrast next to the soft, airy
+    # blender and stack shots, and the blender is ~12 dB louder than the skillet:
+    # match levels per channel, and hand the cooking sound over smoothly at the joins.
+    edit.GRADE_LEVELS = True
+    edit.AMBIENCE_JOIN_FADE = 0.3
+    edit.AMBIENCE_MATCH = 0.6
     sys.argv = [sys.argv[0], *rest, "--font", known.font]
     if "-o" not in sys.argv and "--output" not in sys.argv:
         sys.argv += ["-o", "pancakes_final.mp4"]
