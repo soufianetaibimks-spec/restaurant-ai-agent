@@ -98,14 +98,15 @@ def render_card(lines, size, top, font_path, path):
     return widest
 
 
-if __name__ == "__main__":
+def run(cards, default_output):
+    """Render `cards`, then run the shared edit with music, levels grade and smooth joins."""
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--font")
     ap.add_argument("--music", required=True)
     known, rest = ap.parse_known_args()
-    tmp = tempfile.mkdtemp(prefix="pancake_cards_")
+    tmp = tempfile.mkdtemp(prefix="cards_")
     edit.IMAGE_CARDS = []
-    for k, (lines, t0, t1, size, top, fade_in, fade_out) in enumerate(CARDS):
+    for k, (lines, t0, t1, size, top, fade_in, fade_out) in enumerate(cards):
         png = os.path.join(tmp, f"card{k}.png")
         wide = render_card(lines, size, top, known.font, png)
         print(f"card {k + 1}: {' / '.join(lines)}  ({wide:.0f}px, {t0:.1f}-{t1:.1f}s)")
@@ -113,13 +114,17 @@ if __name__ == "__main__":
     edit.HOOK, edit.TEXTS, edit.MARK = None, [], None
     edit.CLIP_SECONDS = 8.0  # clips run 8.043s; their last 0.04s is silent
     edit.MUSIC = (known.music, MUSIC_LEVEL_DB, MUSIC_DIP_DB)
-    # Clip 2 (dark skillet) has crushed blacks and harsh contrast next to the soft, airy
-    # blender and stack shots, and the blender is ~12 dB louder than the skillet:
-    # match levels per channel, and hand the cooking sound over smoothly at the joins.
+    # Keep shots from different setups looking like one shoot (per-channel black/mid/white
+    # matching), and hand the cooking sound over smoothly at the joins with levels brought
+    # closer together (e.g. a loud blender next to a quiet skillet).
     edit.GRADE_LEVELS = True
     edit.AMBIENCE_JOIN_FADE = 0.3
     edit.AMBIENCE_MATCH = 0.6
     sys.argv = [sys.argv[0], *rest, "--font", known.font]
     if "-o" not in sys.argv and "--output" not in sys.argv:
-        sys.argv += ["-o", "pancakes_final.mp4"]
+        sys.argv += ["-o", default_output]
     edit.main()
+
+
+if __name__ == "__main__":
+    run(CARDS, "pancakes_final.mp4")
