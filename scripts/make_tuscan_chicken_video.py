@@ -83,6 +83,10 @@ LEVEL_POINTS = (5, 50, 95)
 # and move each clip's level this fraction of the way toward the clips' median.
 AMBIENCE_JOIN_FADE = 0.0
 AMBIENCE_MATCH = 0.0
+# Bring each clip's separated voice to the clips' median level while she speaks
+# (for a line recorded softer in one clip). Capped at +/- VOICE_MATCH_MAX_DB.
+VOICE_MATCH = False
+VOICE_MATCH_MAX_DB = 6.0
 
 
 def separate(src, model, tmp, tag):
@@ -281,6 +285,19 @@ def main():
         x, voice = separate(src, args.spleeter, tmp, i)
         parts.append((x, voice))
     amb_gain = [1.0] * n
+    voice_gain = [1.0] * n
+    if VOICE_MATCH:
+        spoken = []
+        for i, (x, voice) in enumerate(parts):
+            mask = np.zeros(x.shape[1], bool)
+            for _, a, b in words[i]:
+                mask[int(max(0, a) * SR):int(b * SR)] = True
+            spoken.append(20 * np.log10(np.sqrt((voice[:, mask] ** 2).mean()) + 1e-9))
+        ref = statistics.median(spoken)
+        voice_gain = [10 ** (max(-VOICE_MATCH_MAX_DB, min(VOICE_MATCH_MAX_DB, ref - v)) / 20)
+                      for v in spoken]
+        log.append("  voice level per clip (dB, while speaking): "
+                   + ", ".join(f"{v:.1f} -> {v + 20 * np.log10(g):.1f}" for v, g in zip(spoken, voice_gain)))
     if AMBIENCE_MATCH:
         quiet = []
         for i, (x, voice) in enumerate(parts):
@@ -296,6 +313,7 @@ def main():
     for i, src in enumerate(args.clips):
         x, voice = parts[i]
         cooking = (x - voice) * amb_gain[i]
+        voice = voice * voice_gain[i]
         if AMBIENCE_JOIN_FADE:
             k = int(AMBIENCE_JOIN_FADE * SR)
             ramp = np.sin(np.linspace(0, np.pi / 2, k)) ** 2

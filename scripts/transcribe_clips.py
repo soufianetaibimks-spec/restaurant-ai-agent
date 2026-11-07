@@ -36,7 +36,9 @@ def number_words(n):
 
 
 EXPAND = {"they're": "they are", "you're": "you are", "it's": "it is", "that's": "that is",
-          "chickpeas": "chick peas", "chickpea": "chick pea"}
+          "chickpeas": "chick peas", "chickpea": "chick pea",
+          # the blog's address, as spoken; Whisper sometimes writes it "...harth"
+          "thespoonandhearth": "the spoon and hearth", "thespoonandharth": "the spoon and hearth"}
 
 
 def pcm16k(path):
@@ -45,6 +47,7 @@ def pcm16k(path):
 
 
 def for_aligner(text):
+    text = re.sub(r"\.(com|net|org)\b", r" dot \1", text)  # "site.com" is said "site dot com"
     words = []
     for w in re.findall(r"[\w']+|&", text.lower()):
         if w.isdigit() and int(w) < 1000:
