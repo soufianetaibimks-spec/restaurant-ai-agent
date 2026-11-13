@@ -6,8 +6,12 @@ relaxed tempo, with a gentle low-pass for warmth, slight timing/velocity
 humanisation, stereo spread and a small reverb tail. Output is a 44.1kHz
 stereo WAV peaking at -1 dBFS, with a fade in and out. Deterministic (fixed seed).
 
+Styles: "bright" (default) is the original Cmaj7-Am7-Fmaj7-G at 84 bpm; "autumn"
+is a slower, minor-leaning Am7-Fmaj7-Cmaj7-G at 72 bpm with a darker tone and a
+slightly longer room tail.
+
 Usage:
-    python3 scripts/make_acoustic_bed.py --seconds 24 -o bed.wav
+    python3 scripts/make_acoustic_bed.py --seconds 24 [--style autumn] -o bed.wav
 """
 import argparse
 import wave
@@ -16,14 +20,14 @@ import numpy as np
 from scipy.signal import fftconvolve, lfilter
 
 SR = 44100
-BPM = 84
 # (bass note, four upper notes) as MIDI numbers
-CHORDS = [
-    (48, [55, 60, 64, 71]),   # Cmaj7
-    (45, [57, 60, 64, 67]),   # Am7
-    (41, [57, 60, 64, 65]),   # Fmaj7
-    (43, [55, 59, 62, 67]),   # G
-]
+CMAJ7, AM7, FMAJ7, G = ((48, [55, 60, 64, 71]), (45, [57, 60, 64, 67]),
+                        (41, [57, 60, 64, 65]), (43, [55, 59, 62, 67]))
+# bpm, chords, low-pass pole (higher = darker), reverb length (s), reverb mix
+STYLES = {
+    "bright": (84, [CMAJ7, AM7, FMAJ7, G], 0.82, 1.6, 0.6),
+    "autumn": (72, [AM7, FMAJ7, CMAJ7, G], 0.86, 2.0, 0.7),
+}
 # eighth-note picking pattern per bar: "B" = bass, numbers index the upper notes
 PATTERN = ["B", 1, 2, 3, "b", 2, 3, 1]
 
@@ -50,16 +54,18 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seconds", type=float, default=24.0)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--style", choices=sorted(STYLES), default="bright")
     ap.add_argument("-o", "--output", default="acoustic_bed.wav")
     args = ap.parse_args()
 
+    bpm, chords, pole, ir_seconds, wet_mix = STYLES[args.style]
     rng = np.random.default_rng(args.seed)
-    eighth = 60 / BPM / 2
+    eighth = 60 / bpm / 2
     total = int((args.seconds + 3) * SR)
     out = np.zeros((2, total))
     t, bar = 0.0, 0
     while t < args.seconds + 1:
-        bass, upper = CHORDS[bar % len(CHORDS)]
+        bass, upper = chords[bar % len(chords)]
         for step, what in enumerate(PATTERN):
             when = t + step * eighth + rng.normal(0, 0.006)
             if what in ("B", "b"):
@@ -74,12 +80,12 @@ def main():
         t += 8 * eighth
         bar += 1
 
-    out = lfilter([0.18], [1, -0.82], out, axis=1)  # warm one-pole low-pass (~1.4kHz knee)
-    ir_len = int(1.6 * SR)
+    out = lfilter([1 - pole], [1, -pole], out, axis=1)  # warm one-pole low-pass
+    ir_len = int(ir_seconds * SR)
     decay = np.exp(-np.linspace(0, 6, ir_len))
     ir = np.stack([rng.normal(0, 1, ir_len) * decay for _ in range(2)]) * 0.012
     wet = np.stack([fftconvolve(out[c], ir[c])[:total] for c in range(2)])
-    mix = out + wet * 0.6
+    mix = out + wet * wet_mix
 
     n = int(args.seconds * SR)
     mix = mix[:, :n]
@@ -94,7 +100,7 @@ def main():
         w.setsampwidth(2)
         w.setframerate(SR)
         w.writeframes(pcm.tobytes())
-    print(f"wrote {args.output} ({args.seconds:.1f}s, {BPM} bpm)")
+    print(f"wrote {args.output} ({args.seconds:.1f}s, {args.style}, {bpm} bpm)")
 
 
 if __name__ == "__main__":
