@@ -1,0 +1,8 @@
+# Video files: rendered output and source clips stay out of git
+*.mp4
+*.mov
+*.mp3
+*.webm
+__pycache__/
+*.jpg
+*.png
