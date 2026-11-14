@@ -87,6 +87,11 @@ AMBIENCE_MATCH = 0.0
 # (for a line recorded softer in one clip). Capped at +/- VOICE_MATCH_MAX_DB.
 VOICE_MATCH = False
 VOICE_MATCH_MAX_DB = 6.0
+# Optional picture re-timing per clip, e.g. to drop a flawed shot without changing the
+# clip's length: {clip index: [(source start, source end, slow-down factor), ...]}.
+# The pieces must add up to the clip's length; slowed pieces are motion-interpolated.
+# The clip's sound is untouched, so only real-time pieces stay in sync with it.
+PICTURE_REMAP = {}
 
 
 def separate(src, model, tmp, tag):
@@ -187,18 +192,31 @@ def grade_levels(rgb, target):
 LEVEL_TARGET = None
 
 
-def render_stretched(src, length, dst, log):
+def render_stretched(src, length, dst, log, remap=None):
     """Graded 1080x1920@30 picture of the whole clip, stretched to `length` seconds."""
     dur = duration(src)
     rgb = frames(src)
     rate = len(rgb) / dur
+    if remap:
+        pieces = remap
+        assert abs(sum((b - a) * f for a, b, f in pieces) - dur) < 0.02, "remap must fill the clip"
+    else:
+        pieces = [(a, b, 1.0) for a, b in find_shots(src, dur)]
+    src_fps = float(run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                         "stream=r_frame_rate", "-of", "csv=p=0", src],
+                        capture_output=True, text=True).stdout.strip().split("/")[0])
     parts, labels = [], []
-    for k, (a, b) in enumerate(find_shots(src, dur)):
+    for k, (a, b, slow) in enumerate(pieces):
         shot = rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))]
         grade, summary = (grade_levels(shot, LEVEL_TARGET) if LEVEL_TARGET is not None
                           else grade_for(shot))
+        retime = ""
+        if slow > 1.001:
+            retime = (f",minterpolate=fps={src_fps * slow:g}:mi_mode=mci:mc_mode=aobmc:"
+                      f"me_mode=bidir:vsbmc=1,setpts={slow:.4f}*PTS")
+            summary += f", slowed x{slow:g} (motion-interpolated)"
         log.append(f"    shot {a:4.2f}-{b:4.2f}s: {summary}")
-        parts.append(f"[0:v]trim={a:.4f}:{b:.4f},setpts=PTS-STARTPTS,{grade}[p{k}]")
+        parts.append(f"[0:v]trim={a:.4f}:{b:.4f},setpts=PTS-STARTPTS,{grade}{retime}[p{k}]")
         labels.append(f"[p{k}]")
     fc = ";".join(parts) + ";" + "".join(labels) + (
         f"concat=n={len(labels)}:v=1:a=0,setpts={length / dur:.6f}*(PTS-STARTPTS),"
@@ -276,7 +294,7 @@ def main():
     for i, src in enumerate(args.clips):
         log.append(f"  clip {i + 1} shots:")
         dst = os.path.join(tmp, f"v{i}.mp4")
-        render_stretched(src, v_len[i], dst, log)
+        render_stretched(src, v_len[i], dst, log, PICTURE_REMAP.get(i))
         vids.append(dst)
 
     # ---- audio: duck the cooking sound under the voice, join back to back

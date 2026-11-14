@@ -27,4 +27,8 @@ CARDS = [
 
 if __name__ == "__main__":
     pancakes.edit.VOICE_MATCH = True
+    # Clip 1's first shot (0-1.46s, colander over the sink) has potato pieces falling
+    # through the colander. Drop it and play the next shot (tipping into the pot) at
+    # half speed, so the mashing from 2.92s on stays in sync with its sound.
+    pancakes.edit.PICTURE_REMAP = {0: [(1.46, 2.92, 2.0), (2.92, 8.0, 1.0)]}
     pancakes.run(CARDS, "mashed_potatoes_final.mp4")
