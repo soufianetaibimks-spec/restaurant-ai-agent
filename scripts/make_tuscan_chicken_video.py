@@ -90,6 +90,8 @@ VOICE_MATCH_MAX_DB = 6.0
 # Optional picture re-timing per clip, e.g. to drop a flawed shot without changing the
 # clip's length: {clip index: [(source start, source end, slow-down factor), ...]}.
 # The pieces must add up to the clip's length; slowed pieces are motion-interpolated.
+# A piece may add a 4th item, (zoom, centre x, centre y) as fractions of the frame,
+# to crop in on that piece (e.g. to push burned-in text out of view).
 # The clip's sound is untouched, so only real-time pieces stay in sync with it.
 PICTURE_REMAP = {}
 
@@ -199,14 +201,14 @@ def render_stretched(src, length, dst, log, remap=None):
     rate = len(rgb) / dur
     if remap:
         pieces = remap
-        assert abs(sum((b - a) * f for a, b, f in pieces) - dur) < 0.02, "remap must fill the clip"
+        assert abs(sum((p[1] - p[0]) * p[2] for p in pieces) - dur) < 0.02, "remap must fill the clip"
     else:
         pieces = [(a, b, 1.0) for a, b in find_shots(src, dur)]
     src_fps = float(run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                          "stream=r_frame_rate", "-of", "csv=p=0", src],
                         capture_output=True, text=True).stdout.strip().split("/")[0])
     parts, labels = [], []
-    for k, (a, b, slow) in enumerate(pieces):
+    for k, (a, b, slow, *zoom) in enumerate(pieces):
         shot = rgb[int(a * rate):max(int(a * rate) + 1, int(b * rate))]
         grade, summary = (grade_levels(shot, LEVEL_TARGET) if LEVEL_TARGET is not None
                           else grade_for(shot))
@@ -215,6 +217,11 @@ def render_stretched(src, length, dst, log, remap=None):
             retime = (f",minterpolate=fps={src_fps * slow:g}:mi_mode=mci:mc_mode=aobmc:"
                       f"me_mode=bidir:vsbmc=1,setpts={slow:.4f}*PTS")
             summary += f", slowed x{slow:g} (motion-interpolated)"
+        if zoom:
+            z, cx, cy = zoom[0]
+            retime += (f",crop=iw/{z}:ih/{z}:min(max(0\\,iw*{cx}-iw/{z}/2)\\,iw-iw/{z}):"
+                       f"min(max(0\\,ih*{cy}-ih/{z}/2)\\,ih-ih/{z}),scale=iw*{z}:ih*{z}")
+            summary += f", zoomed x{z:g}"
         log.append(f"    shot {a:4.2f}-{b:4.2f}s: {summary}")
         parts.append(f"[0:v]trim={a:.4f}:{b:.4f},setpts=PTS-STARTPTS,{grade}{retime}[p{k}]")
         labels.append(f"[p{k}]")
